@@ -3,21 +3,21 @@
 <p>Stage:</p>
 
 <ul>
-<li>overflow1</li>
-<li>overflow2</li>
-<li>overflow3</li>
-<li>overflow4</li>
+<li><a href="#overflow1">overflow1</a></li>
+<li><a href="#overflow2">overflow2</a></li>
+<li><a href="#overflow3">overflow3</a></li>
+<li><a href="#overflow4">overflow4</a></li>
 </ul>
 
 <p>The stages of stacklab is hosted on individual host on emory mainframe host. The purpose of this lab is to understand and use buffer overflow and shell code injection to compromise vulnerable programs, especially with unsafe buffer copy.</p>
 
-
-
-<h2 id="overflow1">overflow1</h2>
+<h2 id="overflow1"><span>overflow1</span></h2>
 
 <p>This is too easy. </p>
 
-<h2 id="oveflow2">oveflow2</h2>
+
+
+<h2 id="overflow2"><span>overflow2</span></h2>
 
 <p>The second stage was meant to be about alphanumeric shell code. </p>
 
@@ -132,6 +132,8 @@ Why is this exploit available? Recall the structure of the memory stack when the
 
 <p>We can easily push the address of <code>system()</code> and <code>exit()</code> to the stack, and the string <code>/bin/sh</code> as an argument, and these three addresses can be easily found inside <code>gdb</code>, you gotta know how to use this powerful debugger.</p>
 
+
+
 <pre class="prettyprint"><code class=" hljs ruby">user<span class="hljs-variable">@host</span><span class="hljs-symbol">:/c0re</span><span class="hljs-variable">$ </span>gdb overflow2
 
 (gdb) unset env <span class="hljs-constant">LINES</span>
@@ -191,7 +193,9 @@ root
 
 <p>Easy right?</p>
 
-<h2 id="overflow3">overflow3</h2>
+
+
+<h2 id="overflow3"><span>overflow3</span></h2>
 
 <p>The third stage is a little bit trickier, but it follows the same idea of stage 1. Let’s first look at the source program with bug.There are 2 functions that we are interested in , namely  <code>zerg()</code> and <code>farmville()</code></p>
 
@@ -457,4 +461,6 @@ uid=<span class="hljs-number">0</span>(root) gid=<span class="hljs-number">1030<
 
 <p>Great! We compromise the program and gain root access in shell! </p>
 
-<h2 id="overflow4">overflow4</h2>
+
+
+<h2 id="overflow4"><span>overflow4</span></h2>
